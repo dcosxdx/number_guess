@@ -1,7 +1,8 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:number_guess/guess_app_bar.dart';
-import 'package:number_guess/result_notice.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '/bloc/guess/guess_bloc.dart';
+import '/guess_app_bar.dart';
+import '/result_notice.dart';
 
 class GuessPage extends StatefulWidget {
   const GuessPage({super.key});
@@ -13,6 +14,7 @@ class GuessPage extends StatefulWidget {
 class _GuessPageState extends State<GuessPage>
     with SingleTickerProviderStateMixin {
   late AnimationController controller;
+  final TextEditingController _guessCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -23,44 +25,6 @@ class _GuessPageState extends State<GuessPage>
     );
   }
 
-  int _value = 0;
-  final Random _random = Random();
-  bool _guessing = false;
-  bool? _isBig;
-
-  final TextEditingController _guessCtrl = TextEditingController();
-
-  void _generateRandomValue() {
-    setState(() {
-      _guessing = true;
-      _value = _random.nextInt(100);
-      print(_value);
-    });
-  }
-
-  void _onCheck() {
-    print("====Check: $_value==== Target value: ${_guessCtrl.text}");
-
-    int? guessValue = int.tryParse(_guessCtrl.text);
-
-    // The game has not started, or the input is a non-integer, ignore
-    if (!_guessing || guessValue == null) return;
-    controller.forward(from: 0);
-    // Guessed it right
-    if (guessValue == _value) {
-      setState(() {
-        _isBig = null;
-        _guessing = false;
-      });
-      return;
-    }
-
-    // Guessed wrong
-    setState(() {
-      _isBig = guessValue > _value;
-    });
-  }
-
   @override
   void dispose() {
     _guessCtrl.dispose();
@@ -68,48 +32,85 @@ class _GuessPageState extends State<GuessPage>
     super.dispose();
   }
 
+  void _onCheck(BuildContext context) {
+    int? guessValue = int.tryParse(_guessCtrl.text);
+
+    // The game has not started, or the input is a non-integer, ignore
+    if (guessValue == null) return;
+    controller.forward(from: 0);
+    context.read<GuessBloc>().add(CheckGuess(guessValue));
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: GuessAppBar(onCheck: _onCheck, controller: _guessCtrl),
-      body: Stack(
-        children: [
-          if (_isBig != null)
-            Column(
-              children: [
-                if (_isBig!)
-                  ResultNotice(
-                    color: Colors.redAccent,
-                    info: "Too Big",
-                    controller: controller,
-                  ),
-                if (!_isBig!)
-                  ResultNotice(
-                    color: Colors.blueAccent,
-                    info: "Too Small",
-                    controller: controller,
-                  ),
-              ],
+    return BlocProvider(
+      create: (_) => GuessBloc(),
+      child: BlocBuilder<GuessBloc, GuessState>(
+        builder: (context, state) {
+          bool guessing = false;
+          bool? isBig;
+          String valueText = '';
+          if (state is GuessInitial) {
+            guessing = false;
+            valueText = '0';
+          } else if (state is Guessing) {
+            guessing = true;
+            valueText = '**';
+          } else if (state is GuessResult) {
+            guessing = state.guessing;
+            isBig = state.isBig;
+            valueText = guessing ? '**' : '0';
+          }
+
+          return Scaffold(
+            appBar: GuessAppBar(
+              onCheck: () => _onCheck(context),
+              controller: _guessCtrl,
             ),
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+            body: Stack(
               children: [
-                if (!_guessing) Text("Click to generate random value"),
-                Text(
-                  _guessing ? '**' : "$_value",
-                  style: Theme.of(context).textTheme.headlineMedium,
+                if (isBig != null)
+                  Column(
+                    children: [
+                      if (isBig)
+                        ResultNotice(
+                          color: Colors.redAccent,
+                          info: "Too Big",
+                          controller: controller,
+                        ),
+                      if (!isBig)
+                        ResultNotice(
+                          color: Colors.blueAccent,
+                          info: "Too Small",
+                          controller: controller,
+                        ),
+                    ],
+                  ),
+                Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (!guessing) Text("Click to generate random value"),
+                      Text(
+                        valueText,
+                        style: Theme.of(context).textTheme.headlineMedium,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _guessing ? null : _generateRandomValue,
-        backgroundColor: _guessing ? Colors.grey : Colors.blue,
-        tooltip: 'Increment',
-        child: Icon(Icons.generating_tokens_outlined),
+            floatingActionButton: FloatingActionButton(
+              onPressed:
+                  guessing
+                      ? null
+                      : () => context.read<GuessBloc>().add(GenerateRandom()),
+              backgroundColor: guessing ? Colors.grey : Colors.blue,
+              tooltip: 'Increment',
+              child: Icon(Icons.generating_tokens_outlined),
+            ),
+          );
+        },
       ),
     );
   }
